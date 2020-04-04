@@ -141,8 +141,8 @@ tw_count2 <- tw_count2 %>%
 ggplot(tw_count2, aes(x = year_mon_day, y = hour, fill = n)) + 
   geom_tile() + # ヒートマップ
   scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶしの濃淡
-  scale_x_date(breaks = seq(tw_cout2[["year_mon_day"]][1], 
-                            tw_cout2[["year_mon_day"]][nrow(tw_cout2)], 
+  scale_x_date(breaks = seq(tw_count2[["year_mon_day"]][1], 
+                            tw_count2[["year_mon_day"]][nrow(tw_count2)], 
                             by = "1 week")) + # x軸目盛
   theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
   labs(title = paste0("@", screen_name, "のツイート数"), 
