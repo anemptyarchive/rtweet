@@ -90,43 +90,41 @@ if(term == "day") {
 }
 
 
-# 時間単位で抽出 ------------------------------------------------------------
+# 時間単位でカウント ------------------------------------------------------------
 
-# 区切る期間を指定
-term <- "hour" # 時間の場合
+# セルの単位(区切る期間)を指定
+term <- "hour"
 
-# 期間別ツイート数の集計
-count_df <- data.frame(TERM = floor_date(tw_time, term)) %>% # データフレームを作成
-            group_by(TERM) %>%          # 期間ごとにグループ化
-            summarise(COUNT = n()) %>%  # グループごとにカウント
-            filter(TERM >= as.POSIXct("2019-01-01")) %>%  # から
-            filter(TERM <= as.POSIXct("2019-01-31"))      # まで
+# 指定した期間ごとにツイート数を集計
+tw_count1 <- tw_time %>% 
+  floor_date(unit = term) %>% # 指定した単位に切り捨て
+  as.POSIXct() %>% # POSIXct型に変換
+  tibble(terms = .) %>% # データフレームに変換
+  count(terms) %>% # ツイート数をカウント
+  filter(terms >= as.POSIXct("2019-01-01")) %>% # から
+  filter(terms <= as.POSIXct("2019-01-31")) # まで
 
+# ツイートがない期間が欠落する対策
+term_list <- seq(
+  floor_date(tw_count1[["terms"]][1], term), # 一番古い時刻
+  floor_date(tw_count1[["terms"]][nrow(tw_count1)], term), # 一番新しい時刻
+  by = term
+) %>% # 指定した期間刻みのベクトルを作成
+  tibble(terms = .)# データフレームに変換
 
+# 集計結果を結合
+tw_count2 <- left_join(term_list, tw_count1, by = "terms")
 
-# 一番古い日から現在までの期間のベクトルを作成
-term_vec <- seq(count_df[["TERM"]][1],               # 最古(最小値)
-                count_df[["TERM"]][nrow(count_df)],  # 現在(最大値)
-                by = term)                           # 間隔
-term_vec[1:10]
+# ツイートがないと値がNAとなるので0に置換
+tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
 
-# x軸ラベル用のベクトルを作成
-x_label <- term_vec[seq(1, length(term_vec), by = 12)] # 間引く間隔を指定
+# 棒グラフを作図
+ggplot(tw_count2, aes(x = terms, y = n)) + 
+  geom_bar(stat = "identity", fill = "#00A968") + # 棒グラフ
+  scale_x_datetime(date_breaks = "12 hours", 
+                   date_labels = "%Y-%m-%d %H") + # x軸目盛(日時)
+  theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
+  labs(title = paste0("@", screen_name, "のツイート数"), 
+       x = "year-mon-day hour") # ラベル
 
-
-# 描画
-ggplot(data = count_df, mapping = aes(x = TERM, y = COUNT)) +  # データ
-  geom_bar(stat = "identity", fill = "#00A968") +  # 棒グラフ
-  scale_x_datetime(breaks = x_label, 
-                   labels = str_remove(x_label, ":00$")) +  # x軸目盛(日付)
-  theme(axis.text.x = element_text(angle = 90)) +           # x軸目盛の角度
-  labs(title = paste0("@", screen_name, "のツイート数の推移"),  # タイトル
-       x = term, y = "count")                                   # 軸ラベル
-
-
-
-# try ---------------------------------------------------------------------
-
-str_remove(as.character(x_label), ":00$")
-str_remove(x_label, ":00$")
 
