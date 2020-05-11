@@ -7,7 +7,6 @@
 library(rtweet) # ツイート収集:get_timeline(), search_tweets()
 library(dplyr) # データフレーム操作
 library(lubridate) # 時間データ操作:floor_date(), as_date(), now()
-library(stringr) # 文字列操作:str_remove_all()
 library(ggplot2) # 作図
 
 
