@@ -1,5 +1,5 @@
 
-# ツイート数をヒートマップ化 --------------------------------------------------
+# ツイート数をヒートマップで可視化 --------------------------------------------------
 
 
 # 利用パッケージ -----------------------------------------------------------------
@@ -7,7 +7,6 @@
 library(rtweet) # ツイート収集:get_timeline(), search_tweets()
 library(dplyr) # データフレーム操作
 library(lubridate) # 時間データ操作:floor_date(), as_date(), now()
-library(stringr) # 文字列操作:str_remove_all()
 library(ggplot2) # 作図
 
 
@@ -20,9 +19,9 @@ screen_name <- "anemptyarchive"
 tw_data <- get_timeline(screen_name, n = 10000, include_rts = FALSE)
 
 # キーワードを指定
-#keyword <- "トピックモデル"
-# キーワード指定でツイートを収集
-#tw_data <- search_tweets(keyword, n = 30000, include_rts = FALSE)
+#search_word <- "トピックモデル"
+# 単語指定でツイートを収集
+#tw_data <- search_tweets(search_word, n = 30000, include_rts = FALSE)
 
 # ツイート日時データを変換
 tw_time <- tw_data[["created_at"]] %>% # ツイート日時を抽出
@@ -30,23 +29,23 @@ tw_time <- tw_data[["created_at"]] %>% # ツイート日時を抽出
   as.POSIXlt(tz = "Asia/Tokyo") # POSIXlt型の日本標準時に変換
 
 
-# 年・月・日別にカウント --------------------------------------------------------------------
+# 期間(年・月・日)を指定してカウント --------------------------------------------------------------------
 
-# セルの単位(区分けする期間)を指定
+# セルの単位(区切る期間)を指定
 #term <- "year"
 #term <- "mon"
 term <- "day"
 
 # 指定した期間ごとにツイート数を集計
 tw_count1 <- tw_time %>% 
-  floor_date(unit = term) %>% # 指定した期間に丸める
+  floor_date(unit = term) %>% # 指定した期間に切り捨て
   as_date() %>% # Date型に変換
   tibble(terms = .) %>% # データフレームに変換
   count(terms) # ツイート数をカウント
 
 # ツイートがない期間が欠落する対策
 term_list <- seq(
-  floor_date(tw_time[length(tw_time)], term), # 一番古い時刻
+  floor_date(tail(tw_time, 1), term), # 一番古い時刻
   floor_date(now(), term), # 現在時刻
   by = term
 ) %>% # 指定した期間刻みのベクトルを作成
@@ -63,19 +62,19 @@ tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
 if(term == "day") {
   
   tw_count2 <- tw_count2 %>% 
-    mutate(year_mon = str_remove_all(terms, "-\\d{2}$")) %>% # 年月を抽出
-    mutate(day = str_remove_all(terms, "^\\d{4}-\\d{2}-")) # 日を抽出
-  
+    mutate(year_mon = format(terms, "%Y-%m")) %>% # 年月を抽出
+    mutate(day = format(terms, "%d")) # 日を抽出
+
 } else if(term == "mon") {
   
   tw_count2 <- tw_count2 %>% 
-    mutate(year = str_remove_all(terms, "-\\d{2}-\\d{2}$")) %>% # 年を抽出
-    mutate(mon = str_remove_all(terms, "^\\d{4}-|-\\d{2}$")) # 月を抽出
+    mutate(year = format(terms, "%Y")) %>% # 年を抽出
+    mutate(mon = format(terms, "%m")) # 月を抽出
   
 } else if(term == "year") {
   
   tw_count2 <- tw_count2 %>% 
-    mutate(year = str_remove_all(terms, "-\\d{2}-\\d{2}$")) # 年を抽出
+    mutate(year = format(terms, "%Y")) # 年を抽出
   
 }
 
@@ -113,7 +112,7 @@ if(term == "day") {
 
 # 1時間ごとにツイート数を集計
 tw_count1 <- tw_time %>% 
-  floor_date(unit = "hour") %>% # 1時間単位で丸める
+  floor_date(unit = "hour") %>% # 1時間単位で切り捨て
   as.POSIXct() %>% # POSIXct型に変換
   tibble(terms = .) %>% # データフレームに変換
   count(terms) # ツイート数をカウント
@@ -135,7 +134,7 @@ tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
 # 軸ラベル用にデータフレームを整形
 tw_count2 <- tw_count2 %>% 
   mutate(year_mon_day = as_date(terms)) %>%  # 年月日を抽出
-  mutate(hour = str_remove_all(terms, "^\\d{4}-\\d{2}-\\d{2} |:\\d{2}:\\d{2}$")) # 時間を抽出
+  mutate(hour = format(terms, "%H")) # 時間を抽出
 
 # ヒートマップを作図
 ggplot(tw_count2, aes(x = year_mon_day, y = hour, fill = n)) + 
@@ -143,8 +142,9 @@ ggplot(tw_count2, aes(x = year_mon_day, y = hour, fill = n)) +
   scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶしの濃淡
   scale_x_date(breaks = seq(tw_count2[["year_mon_day"]][1], 
                             tw_count2[["year_mon_day"]][nrow(tw_count2)], 
-                            by = "1 week")) + # x軸目盛
+                            by = "1 week")) + # x軸目盛(日付)
   theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
   labs(title = paste0("@", screen_name, "のツイート数"), 
        x = "year-mon-day", y = "hour") # ラベル
+
 

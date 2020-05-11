@@ -1,0 +1,373 @@
+---
+title: "rtweetパッケージのあれこレシピ"
+author: "@anemptyarchive\\thanks{\\url{https://www.anarchive-beta.com/}}"
+date: "`r paste('2019/11/21', format(Sys.time(), '%Y/%m/%d'), sep = '-')`"
+output:
+  pdf_document: 
+    latex_engine: xelatex
+    number_section: false
+    toc: true
+    toc_depth: 4
+    keep_tex: false
+header-includes: 
+  - \usepackage{bookmark}
+  - \usepackage{xltxtra}
+  - \usepackage{zxjatype}
+  - \usepackage[ipa]{zxjafont}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  message = FALSE, error = FALSE, warning = FALSE,  # メッセージを非表示
+  fig.align = "center",  # 画像を中央揃え
+  dev = "cairo_pdf", dev.args = list(family = "ipaexg") # {ggplot2}に日本語を組み込む場合の対処
+)
+```
+
+# ・ツイート数のヒートマップを作成
+
+```{r library}
+# 利用パッケージ
+library(rtweet) # ツイート収集:get_timeline(), search_tweets()
+library(dplyr) # データフレーム操作
+library(lubridate) # 時間データ操作:floor_date(), as_date(), now()
+library(ggplot2) # 作図
+```
+
+　利用するパッケージを読み込みます。\
+\
+
+
+## ・ツイート収集
+
+　まずは`rtweet`パッケージを利用して、ツイートを集めます。\
+
+```{r Get_Tweets, eval=FALSE}
+# アカウントを指定
+screen_name <- "anemptyarchive"
+
+# アカウント指定でツイートを収集
+tw_data <- get_timeline(screen_name, n = 10000, include_rts = FALSE)
+```
+```{r hidden_Get_Tweets, include=FALSE}
+# 資料作成用チャンク
+# アカウントを指定
+screen_name <- "anemptyarchive"
+
+# アカウント指定でツイートを収集
+tw_data <- readRDS("tw_data/tw_data_anemptyarchive.rds")
+```
+
+
+　`get_timeline()`にアカウント(\@\*\*\*の\*\*\*)を指定して、ツイートを取得します。引数`n`は収集するツイート数、`include_rts`は取得ツイートにリツイートを含めるかです。\
+
+　特定の単語を含むツイートを収集するのであれば、`search_tweets("検索ワード")`を使います。\
+
+　取得したツイートデータの内ツイート日時の情報があればいいので、`created_at`列を取り出してデータを確認してみましょう。
+
+```{r Check_UTC}
+tw_data[["created_at"]][1:10]
+```
+
+　取得したツイート日時のタイムゾーンが協定世界時(UTC)です。これを日本標準時(JST)に変換にする必要があります。\
+
+```{r}
+# ツイート日時データを変換
+tw_time <- tw_data[["created_at"]] %>% # ツイート日時を抽出
+  as.POSIXct(tz = "Etc/GMT") %>% # POSIXct型の協定世界時を明示
+  as.POSIXlt(tz = "Asia/Tokyo") # POSIXlt型の日本標準時に変換
+```
+
+　`as.POSIXlt()`でPOSIXlt型に変換します。また`tz`引数に`"Japan"`あるいは`"Asia/Tokyo"`を指定して、タイムゾーンを日本標準時に変更します。\
+
+　変換後のデータを確認しましょう。
+
+```{r Check_JST}
+tw_time[1:10]
+```
+
+　これでツイートデータの取得と前処理は完了です。次からは可視化のための処理を行っていきます。\
+\
+
+
+## ・年・月・日別に可視化
+
+　ここからは、指定した期間(年・月・日)ごとにツイート数を集計し、ヒートマップを作図していきます。\
+
+```{r Set_Term}
+# セルの単位(区切る期間)を指定
+term <- "year"
+term <- "mon"
+term <- "day"
+```
+
+　ヒートマップにする際のセルの単位(期間)を指定します。「年」単位であれば`year`、「月」単位なら`mon`、「日」単位なら`day`とします。これは主に`floor_date()`の`unit`引数に指定するためのものなので、このままの文字列を使用してください。\
+
+　指定した期間ごとのツイートを数を集計します。
+
+```{r Count_tw1}
+# 指定した期間ごとにツイート数を集計
+tw_count1 <- tw_time %>% 
+  floor_date(unit = term) %>% # 指定した期間に切り捨て
+  as_date() %>% # Date型に変換
+  tibble(terms = .) %>% # データフレームに変換
+  count(terms) # ツイート数をカウント
+```
+
+　`floor_date()`で指定した期間ごとに丸めて(切り捨て)、時刻情報も不要なので`as_date()`でDate型に変換することで落とします。\
+　また、`tibble()`でデータフレームに変換して、`count()`で各期間のツイート数を集計します。\
+
+```{r Check_Count1}
+tail(tw_count1, 10)
+```
+
+　このままでは、ツイートがなかったタイミングが(ツイート数0ではなく)抜け落ちてしまいます(5月2日そのものがない)。その対処を行います。
+
+```{r Count_tw2}
+# ツイートがない期間が欠落する対策
+term_list <- seq(
+  floor_date(tail(tw_time, 1), term), # 一番古い時刻
+  floor_date(now(), term), # 現在時刻
+  by = term
+) %>% # 指定した期間刻みのベクトルを作成
+  as_date() %>% # Date型に変換
+  tibble(terms = .)# データフレームに変換
+
+# 集計結果を結合
+tw_count2 <- left_join(term_list, tw_count1, by = "terms")
+
+# ツイートがないと値がNAとなるので0に置換
+tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
+```
+
+　`seq()`で、一番古いツイート時刻から現在時刻まで、指定した期間間隔のベクトルを作成します。\
+　これを先ほどと同様に、日時データをDate型に変換し、また全体をデータフレームに変換します。\
+
+　これを受け皿として、`left_join()`でツイート数を結合します。\
+
+　ツイートがなかった期間は`NA`となるので、それを0に置換します。\
+
+　集計結果を確認しましょう。
+
+```{r Check_Count2}
+tail(tw_count2, 10)
+```
+
+　5月2日のツイート数が0という行が含まれていることが確認できます。\
+
+　次はこのデータフレームを作図用に加工します。ただし、指定した期間によって処理によって多少処理が変わるため、`if()`で場合分けしています。
+
+```{r plot_df}
+# 軸ラベル用にデータフレームを整形
+if(term == "day") {
+  
+  tw_count2 <- tw_count2 %>% 
+    mutate(year_mon = format(terms, "%Y-%m")) %>% # 年月を抽出
+    mutate(day = format(terms, "%d")) # 日を抽出
+
+} else if(term == "mon") {
+  
+  tw_count2 <- tw_count2 %>% 
+    mutate(year = format(terms, "%Y")) %>% # 年を抽出
+    mutate(mon = format(terms, "%m")) # 月を抽出
+  
+} else if(term == "year") {
+  
+  tw_count2 <- tw_count2 %>% 
+    mutate(year = format(terms, "%Y")) # 年を抽出
+  
+}
+```
+
+　指定した期間をy軸ラベル、それより大きな単位をx軸目盛とするために、`format()`でツイート日の列(terms)から必要な情報を取り出します。\
+
+　作図用のデータフレームができたので、これを用いて作図します。作図の処理も指定した期間によって異なるため、場合分けします。
+
+```{r Plot_Heatmap, fig.height=4}
+# ヒートマップを作図
+if(term == "day") {
+  
+  ggplot(tw_count2, aes(x = year_mon, y = day, fill = n)) + 
+    geom_tile() + # ヒートマップ
+    scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶしの濃淡
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) + # 軸目盛の傾き
+    labs(title = paste0("@", screen_name, "のツイート数"), 
+         x = "year-mon", y = "day") # ラベル
+  
+} else if(term == "mon") {
+  
+  ggplot(tw_count2, aes(x = year, y = mon, fill = n)) + 
+    geom_tile() + # ヒートマップ
+    scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶしの濃淡
+    labs(title = paste0("@", screen_name, "のツイート数"), 
+         x = "year", y = "mon") # ラベル
+  
+} else if(term == "year") {
+  
+  ggplot(tw_count2, aes(x = year, y = 0, fill = n)) + 
+    geom_tile() + # ヒートマップ
+    scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶしの濃淡
+    ylim(c(-1, 1)) + # y軸の範囲
+    labs(title = paste0("@", screen_name, "のツイート数"), 
+         x = "year", y = "") # ラベル
+  
+}
+```
+
+　基本的に`geom_tile()`でヒートマップを作図します。\
+　タイルの色は`scale_fill_gradient()`の`low`と`high`にそれぞれ色を指定することで、ツイート数に応じたグラデーションとなります。\
+\
+
+
+・月ごとの場合
+
+```{r Plot_mon_ver, echo=FALSE, fig.height=4}
+### 資料作成用チャンク
+# セルの単位(区切る期間)を指定
+term <- "mon"
+
+# 指定した期間ごとにツイート数を集計
+tw_count1 <- tw_time %>% 
+  floor_date(unit = term) %>% # 指定した期間に切り捨て
+  as_date() %>% # Date型に変換
+  tibble(terms = .) %>% # データフレームに変換
+  count(terms) # ツイート数をカウント
+
+# ツイートがない期間が欠落する対策
+term_list <- seq(
+  floor_date(tail(tw_time, 1), term), # 一番古い時刻
+  floor_date(now(), term), # 現在時刻
+  by = term
+) %>% # 指定した期間刻みのベクトルを作成
+  as_date() %>% # Date型に変換
+  tibble(terms = .)# データフレームに変換
+
+# 集計結果を結合
+tw_count2 <- left_join(term_list, tw_count1, by = "terms")
+
+# ツイートがないと値がNAとなるので0に置換
+tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
+
+# 軸ラベル用にデータフレームを整形
+tw_count2 <- tw_count2 %>% 
+  mutate(year = format(terms, "%Y")) %>% # 年を抽出
+  mutate(mon = format(terms, "%m")) # 月を抽出
+
+# ヒートマップを作図
+ggplot(tw_count2, aes(x = year, y = mon, fill = n)) + 
+  geom_tile() + # ヒートマップ
+  scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶしの濃淡
+  labs(title = paste0("@", screen_name, "のツイート数"), 
+       x = "year", y = "mon") # ラベル
+```
+
+・年ごとの場合
+
+```{r Plot_year_ver, echo=FALSE, fig.height=4}
+### 資料作成用チャンク
+# セルの単位(区切る期間)を指定
+term <- "mon"
+
+# 指定した期間ごとにツイート数を集計
+tw_count1 <- tw_time %>% 
+  floor_date(unit = term) %>% # 指定した期間に切り捨て
+  as_date() %>% # Date型に変換
+  tibble(terms = .) %>% # データフレームに変換
+  count(terms) # ツイート数をカウント
+
+# ツイートがない期間が欠落する対策
+term_list <- seq(
+  floor_date(tail(tw_time, 1), term), # 一番古い時刻
+  floor_date(now(), term), # 現在時刻
+  by = term
+) %>% # 指定した期間刻みのベクトルを作成
+  as_date() %>% # Date型に変換
+  tibble(terms = .)# データフレームに変換
+
+# 集計結果を結合
+tw_count2 <- left_join(term_list, tw_count1, by = "terms")
+
+# ツイートがないと値がNAとなるので0に置換
+tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
+
+# 軸ラベル用にデータフレームを整形
+tw_count2 <- tw_count2 %>% 
+  mutate(year = format(terms, "%Y")) # 年を抽出
+
+# ヒートマップを作図
+ggplot(tw_count2, aes(x = year, y = 0, fill = n)) + 
+  geom_tile() + # ヒートマップ
+  scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶしの濃淡
+  ylim(c(-1, 1)) + # y軸の範囲
+  labs(title = paste0("@", screen_name, "のツイート数"), 
+       x = "year", y = "") # ラベル
+```
+
+\
+
+
+## ・時別に可視化
+
+　続いて、1時間ごとのツイート数をヒートマップ化します。\
+　基本的な処理は同様です。こちらは可視化に時刻データを用いるため、ツイート日時を`POSIXct`型で扱うところが異なります。\
+
+```{r Count_tw1_hour_ver}
+# 1時間ごとにツイート数を集計
+tw_count1 <- tw_time %>% 
+  floor_date(unit = "hour") %>% # 1時間単位で切り捨て
+  as.POSIXct() %>% # POSIXct型に変換
+  tibble(terms = .) %>% # データフレームに変換
+  count(terms) # ツイート数をカウント
+
+# ツイートがない期間が欠落する対策
+term_list <- seq(
+  floor_date(tw_time[length(tw_time)], "hour"), # 一番古い時刻
+  floor_date(now(), "hour"), # 現在時刻
+  by = "hour"
+) %>% # 1時間刻みのベクトルを作成
+  tibble(terms = .) # データフレームに変換
+
+# 集計結果を結合
+tw_count2 <- left_join(term_list, tw_count1, by = "terms")
+
+# ツイートがないと値がNAとなるので0に置換
+tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
+
+# 軸ラベル用にデータフレームを整形
+tw_count2 <- tw_count2 %>% 
+  mutate(year_mon_day = as_date(terms)) %>%  # 年月日を抽出
+  mutate(hour = format(terms, "%H")) # 時間を抽出
+```
+
+
+　`floor_date(unit = "hour")`で1時間単位で丸めて(切り捨て)、`as.POSIXct()`でPOSIXct型に変換します。\
+　また、`tibble()`でデータフレームに変換して、`count()`で各期間のツイート数を集計します。\
+
+　日時データの型と、期間を指定する際に`"hour"`を指定する以外は概ね同じ流れです。\
+
+　では、完成したデータフレームを確認しておきましょう。
+
+```{r Check_plot_df}
+tail(tw_count2, 10)
+```
+
+　これを用いて作図します。
+
+```{r Plot_hour_ver, fig.height=4}
+# ヒートマップを作図
+ggplot(tw_count2, aes(x = year_mon_day, y = hour, fill = n)) + 
+  geom_tile() + # ヒートマップ
+  scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶしの濃淡
+  scale_x_date(breaks = seq(tw_count2[["year_mon_day"]][1], 
+                            tw_count2[["year_mon_day"]][nrow(tw_count2)], 
+                            by = "1 week")) + # x軸目盛(日付)
+  theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
+  labs(title = paste0("@", screen_name, "のツイート数"), 
+       x = "year-mon-day", y = "hour") # ラベル
+```
+
+　データ数が多くなるため、必要に応じて`scale_x_date()`で、x軸ラベルを表示する数を間引きます。`breaks`引数に表示する位置のベクトルを渡すことで表示数を絞ることができるので、`by`引数に指定する間隔を調整してください。\
+\
+
+
