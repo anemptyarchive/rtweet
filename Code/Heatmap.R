@@ -6,6 +6,7 @@
 
 library(rtweet) # ツイート収集:get_timeline(), search_tweets()
 library(dplyr) # データフレーム操作
+library(tidyr) # データフレーム操作:replace_na()
 library(lubridate) # 時間データ操作:floor_date(), as_date(), now()
 library(ggplot2) # 作図
 
@@ -44,19 +45,17 @@ tw_count1 <- tw_time %>%
   count(terms) # ツイート数をカウント
 
 # ツイートがない期間が欠落する対策
-term_list <- seq(
-  floor_date(tail(tw_time, 1), term), # 一番古い時刻
-  floor_date(now(), term), # 現在時刻
+term_df <- seq(
+  floor_date(tail(tw_time, 1), term), # 一番古い日時
+  floor_date(now(), term), # 現在日時
   by = term
 ) %>% # 指定した期間刻みのベクトルを作成
   as_date() %>% # Date型に変換
   tibble(terms = .)# データフレームに変換
 
 # 集計結果を結合
-tw_count2 <- left_join(term_list, tw_count1, by = "terms")
-
-# ツイートがないと値がNAとなるので0に置換
-tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
+tw_count2 <- left_join(term_df, tw_count1, by = "terms") %>% 
+  mutate(n = replace_na(n, 0)) # NAを0に置換
 
 # 軸ラベル用にデータフレームを整形
 if(term == "day") {
@@ -118,22 +117,17 @@ tw_count1 <- tw_time %>%
   count(terms) # ツイート数をカウント
 
 # ツイートがない期間が欠落する対策
-term_list <- seq(
+term_df <- seq(
   floor_date(tw_time[length(tw_time)], "hour"), # 一番古い時刻
   floor_date(now(), "hour"), # 現在時刻
   by = "hour"
 ) %>% # 1時間刻みのベクトルを作成
   tibble(terms = .) # データフレームに変換
 
-# 集計結果を結合
-tw_count2 <- left_join(term_list, tw_count1, by = "terms")
-
-# ツイートがないと値がNAとなるので0に置換
-tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
-
-# 軸ラベル用にデータフレームを整形
-tw_count2 <- tw_count2 %>% 
-  mutate(year_mon_day = as_date(terms)) %>%  # 年月日を抽出
+# 作図用にデータフレームを加工
+tw_count2 <- left_join(term_df, tw_count1, by = "terms") %>% # 集計結果を結合
+  mutate(n = replace_na(n, 0)) %>%  # NAを0に置換
+  mutate(year_mon_day = as_date(terms)) %>% # 年月日を抽出
   mutate(hour = format(terms, "%H")) # 時間を抽出
 
 # ヒートマップを作図
