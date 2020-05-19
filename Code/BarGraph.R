@@ -32,36 +32,21 @@ tw_time <- tw_data[["created_at"]] %>% # ツイート日時を抽出
 # 期間(年・月・日)を指定してカウント ------------------------------------------------------------
 
 # セルの単位(区切る期間)を指定
-#term <- "year"
-#term <- "mon"
+term <- "year"
+term <- "mon"
 term <- "day"
 
 # 指定した期間ごとにツイート数を集計
-tw_count1 <- tw_time %>% 
+tw_count <- tw_time %>% 
   floor_date(unit = term) %>% # 指定した単位に切り捨て
   as_date() %>% # Date型に変換
   tibble(terms = .) %>% # データフレームに変換
   count(terms) # ツイート数をカウント
 
-# ツイートがない期間が欠落する対策
-term_list <- seq(
-  floor_date(tail(tw_time, 1), term), # 一番古い時刻
-  floor_date(now(), term), # 現在時刻
-  by = term
-) %>% # 指定した期間刻みのベクトルを作成
-  as_date() %>% # Date型に変換
-  tibble(terms = .)# データフレームに変換
-
-# 集計結果を結合
-tw_count2 <- left_join(term_list, tw_count1, by = "terms")
-
-# ツイートがないと値がNAとなるので0に置換
-tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
-
 # 棒グラフを作図
 if(term == "day") {
   
-  ggplot(tw_count2, aes(x = terms, y = n)) + 
+  ggplot(tw_count, aes(x = terms, y = n)) + 
     geom_bar(stat = "identity", fill = "#00A968") + # 棒グラフ
     scale_x_date(date_breaks = "1 week", date_labels = "%Y-%m-%d") + # x軸目盛(日付)
     theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
@@ -70,7 +55,7 @@ if(term == "day") {
   
 } else if(term == "mon") {
   
-  ggplot(tw_count2, aes(x = terms, y = n)) + 
+  ggplot(tw_count, aes(x = terms, y = n)) + 
     geom_bar(stat = "identity", fill = "#00A968") + # 棒グラフ
     scale_x_date(date_breaks  = "1 month", date_labels = "%Y-%m") + # x軸目盛(日付)
     theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
@@ -79,7 +64,7 @@ if(term == "day") {
   
 } else if(term == "year") {
   
-  ggplot(tw_count2, aes(x = terms, y = n)) + 
+  ggplot(tw_count, aes(x = terms, y = n)) + 
     geom_bar(stat = "identity", fill = "#00A968") + # 棒グラフ
     scale_x_date(date_breaks = "1 year", date_labels = "%Y") + # x軸目盛(日付)
     theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
@@ -95,30 +80,16 @@ if(term == "day") {
 term <- "hour"
 
 # 指定した期間ごとにツイート数を集計
-tw_count1 <- tw_time %>% 
+tw_count <- tw_time %>% 
   floor_date(unit = term) %>% # 指定した単位に切り捨て
   as.POSIXct() %>% # POSIXct型に変換
   tibble(terms = .) %>% # データフレームに変換
   count(terms) %>% # ツイート数をカウント
-  filter(terms >= as.POSIXct("2019-01-01")) %>% # から
-  filter(terms <= as.POSIXct("2019-01-31")) # まで
-
-# ツイートがない期間が欠落する対策
-term_list <- seq(
-  floor_date(tw_count1[["terms"]][1], term), # 一番古い時刻
-  floor_date(tw_count1[["terms"]][nrow(tw_count1)], term), # 一番新しい時刻
-  by = term
-) %>% # 指定した期間刻みのベクトルを作成
-  tibble(terms = .)# データフレームに変換
-
-# 集計結果を結合
-tw_count2 <- left_join(term_list, tw_count1, by = "terms")
-
-# ツイートがないと値がNAとなるので0に置換
-tw_count2[["n"]][is.na(tw_count2[["n"]])] <- 0
+  filter(terms >= as.POSIXct("2020-01-01")) %>% # から
+  filter(terms <= as.POSIXct("2020-01-31")) # まで
 
 # 棒グラフを作図
-ggplot(tw_count2, aes(x = terms, y = n)) + 
+ggplot(tw_count, aes(x = terms, y = n)) + 
   geom_bar(stat = "identity", fill = "#00A968") + # 棒グラフ
   scale_x_datetime(date_breaks = "12 hours", 
                    date_labels = "%Y-%m-%d %H") + # x軸目盛(日時)
