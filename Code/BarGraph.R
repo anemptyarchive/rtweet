@@ -6,7 +6,7 @@
 
 library(rtweet) # ツイート収集:get_timeline(), search_tweets()
 library(dplyr) # データフレーム操作
-library(lubridate) # 時間データ操作:floor_date(), as_date(), now()
+library(lubridate) # 時間データ操作:floor_date(), as_date()
 library(ggplot2) # 作図
 
 
@@ -47,8 +47,8 @@ tw_count <- tw_time %>%
 if(term == "day") {
   
   ggplot(tw_count, aes(x = terms, y = n)) + 
-    geom_bar(stat = "identity", fill = "#00A968") + # 棒グラフ
-    scale_x_date(date_breaks = "1 week", date_labels = "%Y-%m-%d") + # x軸目盛(日付)
+    geom_bar(stat = "identity", fill = "#00A968", color = "#00A968") + # 棒グラフ
+    scale_x_date(date_breaks = "2 weeks", date_labels = "%Y-%m-%d") + # x軸目盛(日付)
     theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
     labs(title = paste0("@", screen_name, "のツイート数"), 
          x = "year-mon-day") # ラベル
@@ -67,7 +67,6 @@ if(term == "day") {
   ggplot(tw_count, aes(x = terms, y = n)) + 
     geom_bar(stat = "identity", fill = "#00A968") + # 棒グラフ
     scale_x_date(date_breaks = "1 year", date_labels = "%Y") + # x軸目盛(日付)
-    theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
     labs(title = paste0("@", screen_name, "のツイート数"), 
          x = "year") # ラベル
   
@@ -90,7 +89,7 @@ tw_count <- tw_time %>%
 
 # 棒グラフを作図
 ggplot(tw_count, aes(x = terms, y = n)) + 
-  geom_bar(stat = "identity", fill = "#00A968") + # 棒グラフ
+  geom_bar(stat = "identity", fill = "#00A968", color = "#00A968") + # 棒グラフ
   scale_x_datetime(date_breaks = "12 hours", 
                    date_labels = "%Y-%m-%d %H") + # x軸目盛(日時)
   theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
