@@ -1,7 +1,7 @@
 ---
 title: "rtweetパッケージのあれこレシピ"
 author: "@anemptyarchive\\thanks{\\url{https://www.anarchive-beta.com/}}"
-date: "`r paste('2019/11/21', format(Sys.time(), '%Y/%m/%d'), sep = '-')`"
+date: "`r paste('2020/05/11', format(Sys.time(), '%Y/%m/%d'), sep = '-')`"
 output:
   pdf_document: 
     latex_engine: xelatex
@@ -42,9 +42,6 @@ tw_data <- get_timeline(screen_name, n = 10000, include_rts = FALSE)
 ```
 ```{r hidden_Get_Tweets, include=FALSE}
 ### 資料作成用チャンク
-# 利用パッケージ
-library(rtweet)
-
 # アカウントを指定
 screen_name <- "anemptyarchive"
 
@@ -600,6 +597,356 @@ ggplot(tw_count2, aes(x = year_mon_day, y = hour, fill = n)) +
 
 　x軸に表示するデータ数が多くなるため、必要に応じて`scale_x_date()`で、x軸ラベルを表示する位置を間引きます(ここに表示されるラベルデータは文字列型なので自動調整されない)。
 　`scale_x_date()`の`breaks`引数に、表示する位置のベクトルを渡すことで表示数を絞ることができます。そのベクトルは、`seq()`に`tw_count2`の`year_mon_day`列の1行目と最終行の要素を渡して作成します。`by`引数に指定する間隔を変更して調整してください。\
+\
+
+
+# ・ツイートのネガポジ分析
+
+
+　ツイートテキストに対して感情分析を行います。\
+　感情分析とは(ざっくり言うと)、テキストに含まれている単語がそれぞれネガティブな表現なのかポジティブな表現なのかを評価し、テキスト全体がネガ・ポジどちらなのかを判定するものです。\
+
+【分析手順】
+
+1. `rtweet`パッケージを使ってツイートを拾ってきます
+1. 取得したツイートテキストを、指定した期間(日or月)ごとに区分けして1つのテキストとします
+1. 各(期間の)テキストに対して、`MeCab`で形態素解を行います
+1. `単語感情極性対応表`を利用して、単語ごとにネガポジスコアを付与します
+1. 期間ごとにネガティブスコア・ポジティブスコアを合算してその期間のネガ度・ポジ度とします
+1. その結果をggplot2で可視化します
+
+\ 
+
+```{r NPAnalytics_lib}
+## 利用パッケージ
+# ツイート収集:get_timeline()
+library(rtweet)
+
+# 形態素解析:docDF()
+library(RMeCab)
+
+# 時間データの処理:floor_date(), as_date()
+library(lubridate)
+
+# データフレーム操作
+library(dplyr)
+library(tidyr)
+
+#文字列操作:str_remove_all()
+library(stringr)
+
+# 作図
+library(ggplot2)
+```
+
+　利用するパッケージを読み込みます。\
+\
+
+　取得したツイートデータの内、ツイート日時(`created_at`列)とツイートテキスト(`text`列)を使います。\
+
+```{r NPAnalytics_TwTime}
+# ツイート日時の抽出とPOSIXlt型・タイムゾーンの変換
+tw_time <- tw_data[["created_at"]] %>% 
+  as.POSIXct(tz = "Etc/GMT") %>% 
+  as.POSIXlt(tz = "Japan")
+```
+
+　取得したツイート日時はPOSIXct型の世界共通時(UTC)なので、これを`as.POSIXlt()`でPOSIXlt型の日本標準時(JST)に変換します。引数`tz`はタイムゾーンのことでJSTに変更するなら`"Japan"`あるいは`"Asia/Tokyo"`を指定します(2行目のEtc/GMTはUCTを明示しています。多分なくても動く)\
+
+```{r NPAnalytics_Check_TwTime}
+tw_time[1:10]
+```
+
+こんな感じになっていればOKです。\
+\
+
+```{r NPAnalytics_TeText}
+# ツイートテキストの抽出と文字列処理
+tw_text <- tw_data[["text"]] %>% 
+  str_remove_all("^@.*?\\s") %>% # リプライ先の除去
+  str_remove_all(("https?://[\\w/:%#\\$&\\?\\(\\)~\\.=\\+\\-]+")) %>% # urlの除去
+  str_remove_all("[\U0001F004-\U000207BF]") # 絵文字の除去
+```
+
+　ツイートテキストから、分析に不要な部分を`str_remove_all()`で取り除きます。\
+\
+
+　これで必要なツイートデータを取得できました。次からは分析のための整形処理を行っていきます。\
+\
+
+
+## ・データハンドリング
+
+
+```{r NPAnalytics_Set_term}
+# 単位(期間)を指定
+term <- "mon"
+term <- "day"
+```
+
+　ツイートテキストをひとまとめにする単位(期間)を指定します。\
+　「月」単位なら`"mon"`、「日」単位なら`"day"`とします。これは主に`floor_date()`の`unit`引数に指定するためのものなので、このままの文字列を使用してください。\
+
+```{r NPAnalytics_TextDF}
+# 期間ごとにツイートテキストをまとめる
+text_df <- data.frame(
+  terms = as.Date(floor_date(tw_time, term)), # 指定した期間で丸める
+  texts = tw_text
+) %>% 
+  group_by(terms) %>% # 期間ごとにグループ化
+  summarise(texts = paste(texts, collapse = "\n")) # 同一期間のテキストを結合
+```
+
+　`floor_date()`で指定した期間(単位)に丸めて、`as_date()`にDate型の日付データに変換します(時刻データを落とします)。\
+
+　また丸めて同一期間となったツイートテキストをまとめます。各ツイートの区切りは改行(`\n`)としておきます。\
+
+　データを確認しましょう。
+
+```{r NPAnalytics_Check_TextDF}
+tail(text_df)
+```
+
+\ 
+
+　これでデータハンドリングは完了です。次からはネガポジ分析を行っていきます。\
+\
+
+
+## ・感情分析
+
+
+　まずはネガポジ度の配点データとなる辞書データを用意します。
+
+```{r NPAnalytics_Download_NPDic_Original, eval=FALSE}
+# 単語感情極性対応表の取得
+np_dic_original <- read.table(
+  "http://www.lr.pi.titech.ac.jp/~takamura/pubs/pn_ja.dic", 
+  sep = ":", stringsAsFactors = FALSE
+)
+```
+```{r hidden_Read_NPDic_Original, include=FALSE}
+### 資料作成用チャンク
+np_dic_original <- readr::read_csv(
+  "dic_data/pn_ja_dic_utf8.csv", locale = readr::locale(encoding = "UTF-8")
+) %>% 
+  as.data.frame()
+```
+
+　東京工業大学高村研究室で公開されている単語感情極性対応表を、単語のネガポジ度を測定するための辞書として利用します。詳しくは[「R+RMeCabで感情分析」](https://qiita.com/rmecab/items/b1a55a0e3a0a8637a461)をご参照ください。\
+
+```{r NPAnalytics_Check_NPDic_Original}
+head(np_dic_original)
+```
+
+　これを`RMeCab::docDF()`の出力結果と結合するために形式を揃えます。
+
+```{r NPAnalytics_NPDic}
+# ネガポジ辞書の作成
+np_dic <- np_dic_original %>% 
+  select(TERM = V1, POS1 = V3, allocation = V4) %>% # 列の選択
+  distinct(TERM, .keep_all = TRUE) # 重複の除去
+head(np_dic)
+```
+
+\ 
+
+　これで辞書データを用意できました。続いて、上で作成した日(あるいは月)ごとのテキスト1つずつに対して次の処理を行います。
+
+1. `docDF()`で単語に切り分けます。
+1. テキストに含まれる単語一覧とネガポジ辞書の単語を`left_join()`で(マッチして)結合することで、配点データを付与します。
+1. 各単語の配点と出現回数を掛けてスコアを計算します。
+1. スコアがマイナスなら「ネガティブ」、プラスなら「ポジティブ」、0(またはNA)なら「ニュートラル」のラベルを付与します。
+
+\ 
+
+　テキストを`MeCab`にかけるには、一時的にtxtファイルとして書き出す必要があります。\
+
+```{r NPAnalytics_Analytics, eval=FALSE}
+# 一時テキストファイルの保存先を指定
+folder_name <- "tmp_data"
+
+# 分析結果の受け皿を初期化
+score_df <- data.frame()
+for(i in 1:nrow(text_df)) {
+  
+  # 一時ファイルパスを作成
+  tmp_file_name <- paste(screen_name, "_", text_df[["terms"]][i], ".txt", sep = "")
+  tmp_path <- paste(folder_name, tmp_file_name, sep = "/")
+  
+  # テキストファイルを書き出し
+  write(text_df[["texts"]][i], tmp_path)
+  
+  # MeCabによる形態素解析
+  mecab_df <- docDF(tmp_path, type = 1, pos = c("動詞", "形容詞", "副詞", "助動詞"))
+  
+  if(!is.null(mecab_df)) { ## (NULLでないときのみ)
+    
+    # ネガポジ配点を結合
+    tmp_score_df <- mecab_df %>% 
+      left_join(np_dic, by = c("TERM", "POS1")) %>% # 各単語に配点を付与
+      mutate(allocation = replace_na(allocation, 0)) %>% # NAを0に置換
+      select(TERM, FREQ = tmp_file_name, allocation) # docDF仕様の列名に変更
+    
+    # ネガポジスコアを計算
+    tmp_score_df <- tmp_score_df %>% 
+      mutate(terms = text_df[["terms"]][i]) %>% # 日付情報列の追加
+      mutate(allocation = replace_na(allocation, 0)) %>% # 配点がNAの場合0に置換
+      mutate(score = allocation * FREQ) %>% # (スコア) = (配点) * (語数)
+      mutate(
+        np_label = case_when(
+          score < 0 ~ "negative", # (スコア) < 0ならネガ
+          score > 0 ~ "positive", # (スコア) > 0ならポジ
+          score == 0 ~ "neutral"  # (スコア) = 0ならニュート
+        )
+      ) # ネガポジラベルを付与
+    
+    # 全期間の結果を結合
+    score_df <- rbind(score_df, tmp_score_df)
+  }
+}
+```
+```{r hidden_NPAnalytics_Analytics, include=FALSE}
+### 資料作成用チャンク
+score_df <- readr::read_csv(
+  file = paste0("tw_data/NegaPosi_Score_", term, "_cp932", ".csv"), 
+  locale = readr::locale(encoding = "Shift-JIS")
+) %>% 
+  as.data.frame()
+```
+
+　辞書に含まれない単語はデータフレームの結合時に配点が`NA`となります。これを`replace_na()`で0に置換します。\
+
+　単語ごとに配点(`allocation`列)と(その単語の)語数(`FREQ`列)を掛けてスコア(`score`列)とします。\
+
+　また単語ごとにスコアの正負によってラベルデータを与えます。`case_when()`を使って`score`列が、、0未満なら`"negative"`0より大きければ`"positive"`、0なら`"neutral"`とします。\
+\
+
+　結果はこのようになります。
+
+```{r NPAnalytics_Check_ScoreDF}
+tail(score_df)
+```
+
+　単語ごとに得点を与えられたので、次は期間ごとに合計します。
+
+```{r NPAnalytics_ResultDF}
+# 期間ごとにネガスコア・ポジスコアの合計
+result_df <- score_df %>% 
+  select(terms, np_label, score, FREQ) %>% 
+  group_by(terms, np_label) %>% 
+  summarise(score = sum(score), FREQ = sum(FREQ)) # スコアと頻度を合算
+```
+
+　期間ごとにそのまま合計するのでなく、ネガポジラベルの情報も使ってポジティブ・ネガティブ・ニュートラル(0だけど)ごとに合計しておきます(相殺されるのはもったいないので)。\
+
+```{r NPAnalytics_Check_ResultDF}
+tail(result_df)
+```
+
+\
+　以上でネガポジ評価は完了です。では可視化しましょう。\
+\
+
+
+## ・可視化
+
+
+・ネガポジ推移\
+
+```{r NPAnalytics_Plot_Transition}
+# ネガポジ推移
+ggplot(result_df, aes(x = terms, y = score)) + 
+  geom_bar(mapping = aes(fill = np_label, color = np_label), stat = "identity") + # 棒グラフ
+  scale_fill_manual(values = c("#00A968", "yellow", "orange")) + # 塗りつぶしの色
+  scale_color_manual(values = c("#00A968", "yellow", "orange")) + # 枠の色
+  geom_line(stat = "summary", fun = "sum", color = "blue") + # 折れ線グラフ
+  scale_x_date(date_breaks = "2 weeks") + # x軸目盛(day)
+  #scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") + # x軸目盛(mon)
+  theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
+  labs(title = paste0("@", screen_name, "のネガポジ推移"), 
+       x = term) # ラベル
+```
+
+　積み上げ棒グラフで、ポジティブスコアとネガティブスコアを表します。\
+　
+　またポジ・ネガスコアの合計を折れ線グラフで描き、その期間のポジ・ネガを表します。\
+
+　ツイート期間が多いと、x軸目盛が潰れてしまうので、`scale_x_date()`の`date_breaks`引数に表示する位置をしていして間引きます。(日別か月別でかなり変わるので、両方用意して片方をコメントアウトしています。)\
+\
+
+　このグラフだと主にニュートラル単語の情報が欠けているので、総単語数におけるネガポジ語数の割合も見ておきましょう。\
+\
+
+
+・ネガポジ割合の推移
+
+```{r NPAnalytics_Plot_Rate}
+# ネガポジ割合の推移
+ggplot(result_df, aes(x = terms, y = FREQ, fill = np_label, color = np_label)) + 
+  geom_bar(stat = "identity", position = "fill") + # 棒グラフ
+  scale_fill_manual(values = c("#00A968", "yellow", "orange")) + # 塗りつぶしの色
+  scale_color_manual(values = c("#00A968", "yellow", "orange")) + # 枠の色
+  scale_x_date(date_breaks = "2 weeks") + # x軸目盛(day)
+  #scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") + # x軸目盛(mon)
+  theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
+  labs(title = paste0("@", screen_name, "のネガポジ割合(語数)の推移"), 
+       x = term) # ラベル
+```
+
+\ 
+
+
+・月別の場合
+
+```{r NPAnalytics_Plot_Transition_Ver_mon, echo=FALSE, fig.height=4}
+### 資料作成用チャンク
+# 期間を指定
+term <- "mon"
+
+# スコアデータを読み込み
+score_df <- readr::read_csv(
+  file = paste0("tw_data/NegaPosi_Score_", term, "_cp932", ".csv"), 
+  locale = readr::locale(encoding = "Shift-JIS")
+) %>% 
+  as.data.frame()
+
+# 期間ごとにネガスコア・ポジスコアの合計
+result_df <- score_df %>% 
+  select(terms, np_label, score, FREQ) %>% 
+  group_by(terms, np_label) %>% 
+  summarise(score = sum(score), FREQ = sum(FREQ)) # スコアと頻度を合算
+
+# ネガポジ推移
+ggplot(result_df, aes(x = terms, y = score)) + 
+  geom_bar(mapping = aes(fill = np_label, color = np_label), stat = "identity") + # 棒グラフ
+  scale_fill_manual(values = c("#00A968", "yellow", "orange")) + # 塗りつぶしの色
+  scale_color_manual(values = c("#00A968", "yellow", "orange")) + # 枠の色
+  geom_line(stat = "summary", fun = "sum", color = "blue") + # 折れ線グラフ
+  #scale_x_date(date_breaks = "2 weeks") + # x軸目盛(day)
+  scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") + # x軸目盛(mon)
+  theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
+  labs(title = paste0("@", screen_name, "のネガポジ推移"), 
+       x = term) # ラベル
+```
+
+
+```{r NPAnalytics_Plot_Rate_Ver_mon, echo=FALSE, fig.height=4}
+# ネガポジ割合の推移
+ggplot(result_df, aes(x = terms, y = FREQ, fill = np_label, color = np_label)) + 
+  geom_bar(stat = "identity", position = "fill") + # 棒グラフ
+  scale_fill_manual(values = c("#00A968", "yellow", "orange")) + # 塗りつぶしの色
+  scale_color_manual(values = c("#00A968", "yellow", "orange")) + # 枠の色
+  #scale_x_date(date_breaks = "2 weeks") + # x軸目盛(day)
+  scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") + # x軸目盛(mon)
+  theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
+  labs(title = paste0("@", screen_name, "のネガポジ割合(語数)の推移"), 
+       x = term) # ラベル
+```
+
+
+\ 
+　ニュートラルな(ネガポジどちらでもない)単語というよりも、得点が与えられて(ネガポジが判定されて)いないが単語多すぎますね。ネガ・ポジ判定のできた単語だけ見てもいくら何でもネガティブが過ぎますね、これは使い物になら・・・\
 \
 
 

@@ -64,11 +64,10 @@ text_df <- data.frame(
 # 感情分析 --------------------------------------------------------------------
 
 # 単語感情極性対応表の取得
-#np_dic_original <- read.table(
-#  "http://www.lr.pi.titech.ac.jp/~takamura/pubs/pn_ja.dic", 
-#  sep = ":", stringsAsFactors = FALSE
-#)
-np_dic_original <- read.csv("dic_data/pn_ja_dic.csv")
+#np_dic_original <- read.table("http://www.lr.pi.titech.ac.jp/~takamura/pubs/pn_ja.dic", sep = ":", stringsAsFactors = FALSE)
+#write.csv(np_dic_original, file = "dic_data/pn_ja_dic_utf8.csv", row.names = FALSE, fileEncoding = "UTF-8")
+#write.csv(np_dic_original, file = "dic_data/pn_ja_dic_cp932.csv", row.names = FALSE, fileEncoding = "Shift-JIS")
+np_dic_original <- readr::read_csv("dic_data/pn_ja_dic_cp932.csv", locale = readr::locale(encoding = "Shift-JIS"))
 head(np_dic_original)
 
 # ネガポジ辞書の作成
@@ -121,6 +120,9 @@ for(i in 1:nrow(text_df)) {
     score_df <- rbind(score_df, tmp_score_df)
   }
 }
+# MeCabの処理に時間がかかるので最新データを保存
+write.csv(score_df, file = paste0("tw_data/NegaPosi_Score_", term, "_cp932", ".csv"), row.names = FALSE, fileEncoding = "Shift-JIS")
+#score_df <- readr::read_csv(file = paste0("tw_data/NegaPosi_Score_", term, "_cp932", ".csv"), locale = readr::locale(encoding = "Shift-JIS"))
 
 # 期間ごとにネガスコア・ポジスコアの合計
 result_df <- score_df %>% 
@@ -129,25 +131,31 @@ result_df <- score_df %>%
   summarise(score = sum(score), FREQ = sum(FREQ)) # スコアと頻度を合算
 
 
+
 # 可視化 ---------------------------------------------------------------------
 
 # ネガポジ推移
 ggplot(result_df, aes(x = terms, y = score)) + 
-  geom_bar(mapping = aes(fill = np_label), stat = "identity") + # 棒グラフ
-  scale_fill_manual(values = c("#00A968", "yellow", "orange")) + # 塗りつぶし色
+  geom_bar(mapping = aes(fill = np_label, color = np_label), stat = "identity") + # 棒グラフ
+  scale_fill_manual(values = c("#00A968", "yellow", "orange")) + # 塗りつぶしの色
+  scale_color_manual(values = c("#00A968", "yellow", "orange")) + # 枠の色
   geom_line(stat = "summary", fun = "sum", color = "blue") + # 折れ線グラフ
-  scale_x_date(date_breaks = "2 weeks") + # x軸目盛
+  scale_x_date(date_breaks = "2 weeks") + # x軸目盛(day)
+  #scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") + # x軸目盛(mon)
   theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
-  labs(title = paste("@", screen_name, "のネガポジ推移", sep = ""), 
+  labs(title = paste0("@", screen_name, "のネガポジ推移"), 
        x = term) # ラベル
 
+
 # ネガポジ割合の推移
-ggplot(result_df, aes(x = terms, y = FREQ, fill = np_label)) + 
-  geom_bar(stat = "identity", position = "fill") + 
-  scale_fill_manual(values = c("#00A968", "yellow", "orange")) + 
-  scale_x_date(date_breaks = "2 weeks") + # x軸目盛
+ggplot(result_df, aes(x = terms, y = FREQ, fill = np_label, color = np_label)) + 
+  geom_bar(stat = "identity", position = "fill") + # 棒グラフ
+  scale_fill_manual(values = c("#00A968", "yellow", "orange")) + # 塗りつぶしの色
+  scale_color_manual(values = c("#00A968", "yellow", "orange")) + # 枠の色
+  scale_x_date(date_breaks = "2 weeks") + # x軸目盛(day)
+  #scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") + # x軸目盛(mon)
   theme(axis.text.x = element_text(angle = 90)) + # x軸目盛の傾き
-  labs(title = paste("@", screen_name, "のネガポジ割合(語数)の推移", sep = ""), 
+  labs(title = paste0("@", screen_name, "のネガポジ割合(語数)の推移"), 
        x = term) # ラベル
 
 
