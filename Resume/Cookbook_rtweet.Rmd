@@ -950,3 +950,206 @@ ggplot(result_df, aes(x = terms, y = FREQ, fill = np_label, color = np_label)) +
 \
 
 
+# ・ツイート頻度によるクラスタリング
+
+
+　ツイートする時間帯から生活サイクルの近い人が分かるのでは？という思い付きをR言語でやってみます。\
+
+【処理の流れ】
+
+1. `rtweet`パッケージを使って、ツイート収集
+1. `ggplot2`パッケージを使って、ツイート頻度をヒートマップ化
+1. `ggdendro`パッケージを使って、ツイート頻度のクラスタリングおよび樹形図作成
+
+\ 
+
+```{r FreqCluster_lib}
+# 利用パッケージ
+library(rtweet) # ツイート収集:get_timeline()
+library(dplyr) # データフレーム操作
+library(tidyr) # データフレーム操作:pivot_longer()
+library(lubridate) # 時間データ操作:floor_date()
+library(ggplot2) # 作図
+library(ggdendro) # 樹形図:dendro_data(), ggdendrogram()
+```
+
+　利用するパッケージを読み込みます。\
+\
+
+
+## ・ツイート収集
+
+
+　まずは`rtweet`パッケージを利用して、ツイートを集めます。\
+
+　アカウントのスクリーンネーム(\@\*\*\*の\*\*\*)を指定します。そこから1アカウントずつ`get_timeline()`に渡して、ツイートデータを取得します(取得できるツイートに制限があったりします)。\
+
+```{r FreqCluster_Get_Tweets, eval=FALSE}
+# アカウントを指定
+screen_names <- c(
+  "MorningMusumeMg", "angerme_upfront", "JuiceJuice_uf", 
+  "tsubakifac_uf", "BEYOOOOONDS_", "kenshusei_uf"
+)
+
+# ツイート収集と集計
+tw_count <- tibble(terms = floor_date(Sys.time(), "hour")) ## (本当は列名だけを持つ空のdfを作りたい)
+for(i in seq_along(screen_names)) {
+  
+  # ツイートを収集
+  tw_data <- get_timeline(screen_names[i], n = 10000, include_rts = FALSE)
+
+  # 指定した期間ごとにツイート数を集計
+  tmp_tw_count <- tw_data[["created_at"]] %>% # ツイート日時を抽出
+    as.POSIXct(tz = "Asia/Tokyo") %>% # 日本標準時に変換
+    floor_date(unit = "hour") %>% # 1時間ごとに切り捨て
+    tibble(terms = .) %>% # データフレームに変換
+    group_by(terms) %>% # グループ化
+    summarise(!!screen_names[i] := n()) # ツイート数をカウント
+  
+  # 集計結果を結合
+  tw_count <- full_join(tw_count, tmp_tw_count, by = "terms")
+  
+  # おまじない
+  Sys.sleep(1)
+  print(paste0(screen_names[i], "...", round(i / length(screen_names) * 100, 1), "%"))
+}
+```
+```{r hidden_FreqCluster_Get_Tweets, include=FALSE}
+### 資料作成用チャンク
+# ツイートを収集
+tw_count <- readRDS("tw_data/freq_hello.rds")
+```
+
+　取得したツイートデータの内、ツイート日時(`created_at`列)を利用します。
+
+　取得したツイート日時は世界共通時(UTC)なので、`as.POSIXlt()`の`tz`引数に`"Asia/Tokyo"`を指定することで日本標準時(JST)に変換します。\
+　また1時間ごとのツイート数を集計するために、日時データを`floor_date(., unit = "hour")`で分と秒の情報を切り捨てます。\
+　ここまではベクトルとして扱っているので、これを`tibble()`でデータフレームとします。\
+
+　あとは、グループ化してカウントしたものを全てのアカウント分結合していきます。\
+\
+
+```{r FreqCluster_Check_TwCount}
+head(tw_count)
+```
+
+　ツイートがない日時は`NA`になります。\
+\
+
+　アカウントによって取得できたツイートの期間にばらつきがあるかもしれないため、利用する期間を絞っておきます。
+
+```{r FreqCluster_Set_Term}
+# 期間を指定してツイート数を抽出
+tw_count2 <- seq(
+  as.POSIXct("2020/04/01", tz = "Japan"), # から
+  as.POSIXct("2020/05/01", tz = "Japan"), # まで
+  by = "hour"
+) %>% 
+  tibble(terms = .) %>% # 指定した範囲のdfを作成
+  left_join(tw_count, by = "terms") # 範囲内のツイート数を結合
+
+# ツイートがないと値がNAとなるので0に置換
+tw_count2[is.na.data.frame(tw_count2)] <- 0
+```
+
+　`seq()`に始まり(第1引数)と終わり(第2引数)の日時を指定して`by`引数を`"hour"`とすることで、1時間ごとに日時データが並んだベクトルとなります。\
+　それをデータフレームに変換し、`left_join()`で先ほどの頻度データと結合します。\
+
+　ここでもツイートがない日時が`NA`となるので、0に置換しておきます。`NA`のままだとヒートマップとしたときに表示されません。\
+
+```{r FreqCluster_Check_TwCount2}
+tail(tw_count2)
+```
+
+こんな感じになっていればOKです。\
+\
+
+　これで必要なツイート頻度データを用意できました。次はこれをヒートマップにします。\
+\
+
+
+## ・ヒートマップ
+
+
+　`ggplot2`で作図するために、`pivot_longer()`で縦型のデータフレームに変換します。\
+
+```{r FreqCluster_TwCountLong}
+# データフレームをlong型に変換
+tw_count_long <- pivot_longer(
+  tw_count2, 
+  cols = -terms, # 変換しない列
+  names_to = "screen_name", # 現列名を格納する列の名前
+  values_to = "n" # 現セルを格納する列の名前
+)
+```
+
+　期間を行・アカウントを列・頻度をセルとするデータフレームを、期間・アカウント・頻度の3列からなるデータフレームに変換します。それぞれy軸・x軸・値(グラデーション)に対応します。\
+
+```{r FreqCluster_Check_TwCountLong}
+head(tw_count_long)
+```
+
+　このlong型のデータフレームを使って作図します。\
+
+```{r FreqCluster_Plot_Heatmap}
+# ヒートマップを作図
+ggplot(tw_count_long, aes(x = screen_name, y = terms, fill = n)) + 
+  geom_tile() + # ヒートマップ
+  scale_fill_gradient(low = "white", high = "#00A968") + # 塗りつぶし色のグラデーション
+  scale_y_datetime(date_breaks = "1 day", 
+                   date_labels = "%Y-%m-%d %H") + # y軸目盛(日時)
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + # x軸目盛の角度
+  labs(title = "アカウントごとのツイート数", 
+       y = "hour") # ラベル
+```
+
+　`geom_tile()`でヒートマップを作成します。\
+　タイル(?)の色の設定は`scale_fill_gradient()`で行えます。引数`low`に頻度が少ない場合の色を、引数`high`に多い場合の色を指定すると、いい感じのグラデーションになります。\
+
+　データが多いとy軸目盛が潰れてしまいます。そんなときは`scale_y_datetime()`で調整できます。`date_breaks`引数に表示する間隔を指定し、`date_labels`引数に表示する文字列のフォーマットを指定します。\
+\
+
+　(これ自体はクラスタリングに必須ではないですが)アカウントごとのツイート頻度を視覚的に確認できました。ではクラスタリングを行いましょう。\
+\
+
+
+## ・クラスタリング
+
+
+　`ggplot2`風と組み込み`plot()`で作図します(どちらもいまいち上手く扱えていないです…)。\
+\
+
+```{r FreqCluster_Plot_Dendrogram_Ver_ggdendro, fig.height=4}
+# クラスタリング
+res_dendrogram <- tw_count2[, -1] %>% # 非数値の列を落とす
+  t() %>% # 転置
+  dist() %>% # 距離(類似度)を測る
+  hclust("ward.D2") %>% # クラスタリング
+  dendro_data() # 作図用にデータを変換
+
+# 描画
+ggdendrogram(res_dendrogram, theme_dendro = FALSE)
+```
+
+　`dist()`で各アカウント間の距離(非類似度)を測り、`hclust()`でクラスター(グループ)を作っていきます。最後に`dendro_data()`で`ggdendrogram()`用のデータ型に変換します。\
+\
+
+```{r FreqCluster_Plot_Dendrogram_Ver_plot, fig.height=4}
+# クラスタリング
+res_dendrogram <- tw_count2[, -1] %>% # 非数値の列を落とす
+  t() %>% # 転置
+  dist() %>% # 距離(類似度)を測る
+  hclust("ward.D2") %>% # クラスタリング
+  as.dendrogram() # 作図用にデータを変換
+
+# 描画
+plot(res_dendrogram)
+```
+
+　`plot()`で作図する場合は最後のデータ変換に使う関数が`as.dendrogram()`になります。\
+\
+
+　これで廃人クラスタとかニートクラスタなんぞが見えてくるわけですね…\
+\
+
+
