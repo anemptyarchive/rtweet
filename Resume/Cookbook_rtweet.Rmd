@@ -1153,3 +1153,111 @@ plot(res_dendrogram)
 \
 
 
+# ・ツイート画像を取得する
+
+
+　特定の単語と共にツイートされた画像を取得して保存します。\
+\
+
+```{r GetPicture_lib}
+# 利用パッケージ
+library(rtweet) # ツイートの取得:search_tweets()
+library(magick) # 画像の取得:image_read(), image_write()
+library(dplyr) # データ操作
+library(tidyr) # unnest()
+```
+
+　利用するパッケージを読み込みます。\
+\
+
+
+## ・ツイートの収集
+
+
+　まずは`rtweet`パッケージを利用して、ツイートを集めます。\
+
+```{r GetPicture_Get_Tweets, eval=FALSE}
+# 検索ワードを指定してツイートを取得
+tw_data <- search_tweets("#鞘師里保誕生祭", n = 1000, include_rts = FALSE)
+```
+```{r hidden_GetPicture_Get_Tweets, include=FALSE}
+### 資料作成用チャンク
+# 検索ワードを指定してツイートを取得
+tw_data <- readRDS("tw_data/tw_data_rihoriho.rds")
+```
+
+　`search_tweets()`に検索ワードを指定してツイートを拾ってきます。引数`n`には取得するツイート数を指定します。`include_rts = FALSE`で、リツイートを除くことができます(デフォルトは`TRUE`)。\
+\
+
+　取得したツイートデータから、画像のURLを抽出します。URL情報は`ext_media_url`列です。
+
+```{r GetPicture_TwPicURL, eval=FALSE}
+# 画像のurlを抽出
+tw_pic_url <- tw_data %>% 
+  unnest(ext_media_url) %>% # 画像urlのネストを解除
+  filter(!is.na(media_url)) %>%  # 画像のあるもののみ抽出
+  select(created_at, screen_name, text, ext_media_url)
+```
+```{r hidden_GetPicture_TwPicURL, include=FALSE}
+### 資料作成用チャンク
+# 画像のurlを抽出
+tw_pic_url <- tw_data %>% 
+  unnest(ext_media_url) %>% # 画像urlのネストを解除
+  filter(!is.na(media_url)) %>%  # 画像のあるもののみ抽出
+  select(created_at, text, ext_media_url)
+```
+
+　1つのツイートに複数枚の画像が含まれる場合はURLがネスト(入れ子)されているので、`unnest()`で解除します。\
+
+　逆に画像がないツイートは`NA`となっているので、`filter()`で`NA`でないもののみ取り出します。\
+
+　最後に必要な情報を取り出します。必要なのは`ext_media_url`だけですが、重複等の確認のためにここではツイート日時・ユーザーネーム・ツイートテキストも取り出すことにします。\
+\
+
+
+```{r GetPicture_Check_TwPicURL}
+tail(tw_pic_url)
+```
+
+　(ユーザーネームの情報は落としています。)ツイート日時は協定世界時なので、日本時間とはズレています。またネストを解除した影響で、画像枚数分複製されているものがあります。\
+
+　問題がなければ、このURLから画像を保存していきます。\
+\
+
+
+## ・画像の取得
+
+
+　`magick`を利用して、画像を取得します。\
+
+```{r GetPicture_Get_Picture, eval=FALSE}
+# 画像を取得
+for(i in 1:nrow(tw_pic_url)) {
+  
+  # urlを取り出す
+  pic_url <- tw_pic_url[["ext_media_url"]][i]
+  
+  # 画像を取得
+  pic_data <- image_read(pic_url)
+  
+  # 画像を保存
+  image_write(pic_data, path = paste0("pic_data/rihoriho/rihoriho_", i, ".png"), format = "png")
+  
+  # おまじない
+  Sys.sleep(1)
+}
+```
+
+　`for()`ループで、順番に画像を取得し保存します。\
+
+　URLを1つ取り出し`image_read()`に渡して、画像を取得します。\
+
+　取得した画像データを`image_write()`で書き出します。\
+
+　サーバーに負荷がかかりすぎないように、`Sys.sleep()`で処理を一時停止しましょう。\
+\
+
+　指定したフォルダに画像が1つずつ保存されていきます。\
+\
+
+
