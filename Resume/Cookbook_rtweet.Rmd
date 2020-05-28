@@ -1195,7 +1195,7 @@ tw_data <- readRDS("tw_data/tw_data_rihoriho.rds")
 # 画像のurlを抽出
 tw_pic_url <- tw_data %>% 
   unnest(ext_media_url) %>% # 画像urlのネストを解除
-  filter(!is.na(media_url)) %>%  # 画像のあるもののみ抽出
+  filter(!is.na(ext_media_url)) %>%  # 画像を含むもののみ抽出
   select(created_at, screen_name, text, ext_media_url)
 ```
 ```{r hidden_GetPicture_TwPicURL, include=FALSE}

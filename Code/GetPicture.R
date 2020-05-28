@@ -8,7 +8,7 @@ library(dplyr) # データ操作
 library(tidyr) # unnest()
 
 
-# ツイートを取得 ------------------------------------------------------------------
+# ツイートの取得 ------------------------------------------------------------------
 
 # 検索ワードを指定してツイートを取得
 tw_data <- search_tweets("#鞘師里保誕生祭", n = 1000, include_rts = FALSE)
@@ -17,12 +17,12 @@ tw_data <- search_tweets("#鞘師里保誕生祭", n = 1000, include_rts = FALSE
 # 画像のurlを抽出
 tw_pic_url <- tw_data %>% 
   unnest(ext_media_url) %>% # 画像urlのネストを解除
-  filter(!is.na(media_url)) %>%  # 画像のあるもののみ抽出
+  filter(!is.na(ext_media_url)) %>%  # 画像を含むもののみ抽出
   select(created_at, screen_name, text, ext_media_url)
 nrow(tw_pic_url)
 
 
-# 画像を取得 -------------------------------------------------------------------
+# 画像の取得 -------------------------------------------------------------------
 
 # 画像を取得
 for(i in 1:nrow(tw_pic_url)) {

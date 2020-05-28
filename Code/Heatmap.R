@@ -51,7 +51,7 @@ term_df <- seq(
   by = term
 ) %>% # 指定した期間刻みのベクトルを作成
   as_date() %>% # Date型に変換
-  tibble(terms = .)# データフレームに変換
+  tibble(terms = .) # データフレームに変換
 
 # 集計結果を結合
 tw_count2 <- left_join(term_df, tw_count1, by = "terms") %>% 
