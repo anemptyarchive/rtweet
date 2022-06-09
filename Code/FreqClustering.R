@@ -2,121 +2,135 @@
 # ツイート頻度でクラスタリング---------------------------------------------------------------
 
 # 利用パッケージ
-library(rtweet) # ツイート収集:get_timeline()
-library(dplyr) # データフレーム操作
-library(tidyr) # データフレーム操作:pivot_longer()
-library(lubridate) # 時間データ操作:floor_date()
-library(ggplot2) # 作図
-library(ggdendro) # 樹形図:dendro_data(), ggdendrogram()
+library(rtweet)
+library(tidyverse)
+library(lubridate)
+library(ggdendro)
+
+# チェック用
+library(ggplot2)
 
 
 # ツイート収集 ------------------------------------------------------------------
 
 # アカウントを指定
-screen_names <- c(
+screen_name_vec <- c(
   "MorningMusumeMg", "angerme_upfront", "JuiceJuice_uf", 
-  "tsubakifac_uf", "BEYOOOOONDS_", "kenshusei_uf"
+  "tsubakifac_uf", "BEYOOOOONDS_", "ocha_norma", "kenshusei_uf"
 )
 
-# ツイート収集と集計
-tw_count <- tibble(terms = floor_date(Sys.time(), "hour")) ## (本当は列名だけを持つ空のdfを作りたい)
-for(i in seq_along(screen_names)) {
-  
+# ツイートを収集
+tw_df <- tibble::tibble()
+for(screen_name in screen_name_vec) {
   # ツイートを収集
-  tw_data <- get_timeline(screen_names[i], n = 10000, include_rts = FALSE)
+  tmp_tw_df <- rtweet::get_timeline(screen_name, n = 10000, include_rts = FALSE)
   
-  # 指定した期間ごとにツイート数を集計
-  tmp_tw_count <- tw_data[["created_at"]] %>% # ツイート日時を抽出
-    as.POSIXct(tz = "Asia/Tokyo") %>% # 日本標準時に変換
-    floor_date(unit = "hour") %>% # 1時間ごとに切り捨て
-    tibble(terms = .) %>% # データフレームに変換
-    group_by(terms) %>% # グループ化
-    summarise(!!screen_names[i] := n()) # ツイート数をカウント
-  
-  # 集計結果を結合
-  tw_count <- full_join(tw_count, tmp_tw_count, by = "terms")
+  # データを結合
+  tw_df <- dplyr::bind_rows(tw_df, tmp_tw_df)
   
   # おまじない
-  Sys.sleep(1)
-  print(paste0(screen_names[i], "...", round(i / length(screen_names) * 100, 1), "%"))
+  print(paste0("(", which(screen_name_vec == screen_name), "/", length(screen_name_vec), ") ", screen_name))
+  Sys.sleep(3)
 }
-# とりあえず保存
-#saveRDS(tw_count, file = "tw_data/freq_hello.rds")
-#readRDS("tw_data/freq_hello.rds")
-head(tw_count)
-
-# 期間を指定してツイート数を抽出
-tw_count2 <- seq(
-  as.POSIXct("2020/04/01", tz = "Japan"), # から
-  as.POSIXct("2020/05/01", tz = "Japan"), # まで
-  by = "hour"
-) %>% 
-  tibble(terms = .) %>% # 指定した範囲のdfを作成
-  left_join(tw_count, by = "terms") # 範囲内のツイート数を結合
-
-# ツイートがないと値がNAとなるので0に置換
-tw_count2[is.na.data.frame(tw_count2)] <- 0
-head(tw_count2)
 
 
-# ヒートマップ ------------------------------------------------------------------
+# 期間の指定 -------------------------------------------------------------------
 
-# データフレームをlong型に変換
-tw_count_long <- pivot_longer(
-  tw_count2, 
-  cols = -terms, # 変換しない列
-  names_to = "screen_name", # 現列名を格納する列の名前
-  values_to = "n" # 現セルを格納する列の名前
-)
+# 集計開始日を指定
+date_from <- "2022-05-01"
+date_from <- min(tw_df[["created_at"]])
 
-# ヒートマップを作図
-ggplot(tw_count_long, aes(x = screen_name, y = terms, fill = n)) + 
+# 集計終了日を指定
+date_to <- "2022-05-07"
+date_to <- max(tw_df[["created_at"]])
+date_to <- lubridate::today()
+
+# POSIXct型に変換
+datetime_from <- date_from |> 
+  lubridate::as_date() |> 
+  lubridate::as_datetime(tz = "Asia/Tokyo")
+datetime_to <- date_to |> 
+  lubridate::as_date() |> 
+  lubridate::as_datetime(tz = "Asia/Tokyo") + lubridate::days(1)
+
+
+# ツイート数の集計 ----------------------------------------------------------------
+
+# ツイート数を集計
+freq_wide_df <- tw_df  |> 
+  dplyr::select(datetime = created_at, screen_name) |> # ツイート日時列を選択
+  dplyr::mutate(
+    datetime = datetime |> 
+      #lubridate::with_tz(tzone = "Etc/GMT") |> # POSIXct型の協定世界時を明示
+      lubridate::with_tz(tzone = "Asia/Tokyo") |> # POSIXct型の日本標準時に変換
+      lubridate::floor_date(unit = "hour") # 1時間単位に切り捨て
+  ) |> 
+  dplyr::group_by(screen_name) |> # カウント用にグループ化
+  dplyr::count(datetime, name = "n") |> # ツイート数をカウント
+  dplyr::ungroup() |> # グループ化を解除
+  tidyr::pivot_wider(
+    id_cols = datetime, 
+    names_from = screen_name, 
+    values_from = n, 
+    values_fill = 0
+  ) |> # アカウントごとの列に展開
+  dplyr::right_join(
+    tibble::tibble(
+      datetime = seq(from = datetime_from, to = datetime_to, by = "hour") |> 
+        head(n = -1)
+    ), 
+    by = "datetime"
+  ) |> # 指定した期間の全ての日時を作成
+  dplyr::mutate(
+    dplyr::across(.cols = !datetime, .fns = ~tidyr::replace_na(., 0))
+  ) |> # ツイートの無い日時を0に置換
+  dplyr::arrange(datetime)
+freq_wide_df
+
+
+# ヒートマップによる可視化 ------------------------------------------------------------------
+
+# 作図用のデータフレームを作成
+freq_long_df <- freq_wide_df |> 
+  tidyr::pivot_longer(
+    cols = !datetime, 
+    names_to = "screen_name", 
+    names_ptypes = list(screen_name = factor(levels = screen_name_vec)), 
+    values_to = "n"
+  )
+
+# ヒートマップを作成
+ggplot(freq_long_df, aes(x = screen_name, y = datetime, fill = n)) + 
   geom_tile() + # ヒートマップ
-  scale_fill_gradient(low = "white", high = "#00A968") + # 塗りつぶし色のグラデーション
-  scale_y_datetime(date_breaks = "1 day", 
-                   date_labels = "%Y-%m-%d %H") + # y軸目盛(日時)
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + # x軸目盛の角度
-  labs(title = "アカウントごとのツイート数") # ラベル
+  scale_fill_gradient(low = "white", high = "#00A968") + # 塗りつぶし色
+  scale_y_datetime(date_breaks = "1 day", date_labels = "%Y-%m-%d %H") + # y軸目盛
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + # x軸目盛ラベル
+  labs(title = "ツイート数") # ラベル
 
 
 # クラスタリング -----------------------------------------------------------------
 
 # クラスタリング
-res_dendrogram <- tw_count2[, -1] %>% # 非数値の列を落とす
-  t() %>% # 転置
-  dist() %>% # 距離(類似度)を測る
-  hclust("ward.D2") %>% # クラスタリング
-  dendro_data() # 作図用にデータを変換
+res_dendro <- freq_wide_df |> 
+  dplyr::select(!datetime) |> # 非数値列を除去
+  t() |> # 転置
+  dist() |> # 距離(類似度)を計算
+  hclust("ward.D2") |>  # クラスタリング
+  ggdendro::dendro_data() # 作図用にデータを変換
 
-# 描画
-ggdendrogram(res_dendrogram, theme_dendro = FALSE)
+# デンドログラムを作成
+ggdendro::ggdendrogram(res_dendro, theme_dendro = FALSE)
 
 
 # クラスタリング
-res_dendrogram <- tw_count2[, -1] %>% # 非数値の列を落とす
-  t() %>% # 転置
-  dist() %>% # 距離(類似度)を測る
-  hclust("ward.D2") %>% # クラスタリング
+res_dendro <- freq_wide_df |> 
+  dplyr::select(!datetime) |> # 非数値列を除去
+  t() |> # 転置
+  dist() |> # 距離(類似度)を計算
+  hclust("ward.D2") |>  # クラスタリング
   as.dendrogram() # 作図用にデータを変換
 
-# 描画
-plot(res_dendrogram)
-
-
-# try:ver ggplot() --------------------------------------------------------
-
-# クラスタリング
-res_dendrogram <- tw_count2[, -1] %>% # 非数値の列を落とす
-  t() %>% # 転置
-  dist() %>% # 距離(類似度)を測る
-  hclust("ward.D2") %>% # クラスタリング
-  dendro_data() # 作図用にデータを変換
-
-# 作図：ggplot()
-ggplot() + 
-  geom_segment(data = segment(res_dendrogram), mapping = aes(x = x, y = y, xend = xend, yend = yend)) +          # 樹形図
-  geom_text(data = label(res_dendrogram), 
-            aes(x = x, y = y, label = label), hjust = 1, angle = 90) + # 各変数名
-  ylim(c(-15, 50))
+# デンドログラムを作成
+plot(res_dendro)
 
 
