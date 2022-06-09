@@ -7,7 +7,7 @@ library(tidyverse)
 library(lubridate)
 
 # チェック用
-library(ggplot2) # 作図
+library(ggplot2)
 
 
 # ツイートの収集 ------------------------------------------------------------------
@@ -38,7 +38,7 @@ date_to <- max(tw_df[["created_at"]])
 date_to <- lubridate::today()
 
 
-# 期間(年・月・日)を指定して集計 ----------------------------------------------------------------------
+# 年別・月別・日別で集計 ----------------------------------------------------------------------
 
 # 集計単位を指定
 term <- "year"
@@ -62,7 +62,7 @@ freq_df <- tw_df |>
       lubridate::with_tz(tzone = "Asia/Tokyo") |> # POSIXct型の日本標準時に変換
       lubridate::floor_date(unit = term) |> # 指定した単位に切り捨て
       lubridate::as_date() # Date型に変換
-  ) |> # 
+  ) |> 
   dplyr::count(date, name = "n") |> # ツイート数をカウント
   dplyr::right_join(
     tibble::tibble(date = seq(from = date_from, to = date_to, by = term)), 
@@ -119,7 +119,7 @@ if(term == "day") {
 }
 
 
-# 時別にカウント -------------------------------------------------------------------
+# 時別で集計 -------------------------------------------------------------------
 
 # POSIXct型に変換
 datetime_from <- date_from |> 
@@ -137,7 +137,7 @@ freq_df <- tw_df |>
       #lubridate::with_tz(tzone = "Etc/GMT") |> # POSIXct型の協定世界時を明示
       lubridate::with_tz(tzone = "Asia/Tokyo") |> # POSIXct型の日本標準時に変換
       lubridate::floor_date(unit = "hour") # 1時間単位に切り捨て
-  ) |> # 
+  ) |> 
   dplyr::count(datetime, name = "n") |> # ツイート数をカウント
   dplyr::right_join(
     tibble::tibble(
