@@ -41,17 +41,17 @@ date_to <- lubridate::today()
 # 年別・月別・日別で集計 ------------------------------------------------------------
 
 # 集計単位を指定
-term <- "year"
-term <- "mon"
-term <- "day"
+unit <- "year"
+unit <- "mon"
+unit <- "day"
 
 # Date型に変換
 date_from <- date_from |> 
   lubridate::as_date() |> 
-  lubridate::floor_date(unit = term)
+  lubridate::floor_date(unit = unit)
 date_to <- date_to |> 
   lubridate::as_date() |> 
-  lubridate::floor_date(unit = term)
+  lubridate::floor_date(unit = unit)
 
 # 指定した単位ごとにツイート数を集計
 freq_df <- tw_df |> 
@@ -60,14 +60,14 @@ freq_df <- tw_df |>
     date = date |> 
       #lubridate::with_tz(tzone = "Etc/GMT") |> # POSIXct型の協定世界時を明示
       lubridate::with_tz(tzone = "Asia/Tokyo") |> # POSIXct型の日本標準時に変換
-      lubridate::floor_date(unit = term) |> # 指定した単位に切り捨て
+      lubridate::floor_date(unit = unit) |> # 指定した単位に切り捨て
       lubridate::as_date() # Date型に変換
   ) |> 
   dplyr::count(date, name = "n") |> # ツイート数をカウント
   dplyr::filter(date >= date_from, date <= date_to) # 期間内のデータを抽出
 
 # 指定した単位に応じて作図
-if(term == "day") {
+if(unit == "day") {
   # 棒グラフを作図
   ggplot(freq_df, aes(x = date, y = n)) + 
     geom_bar(stat = "identity", fill = "#00A968", color = "#00A968") + # 棒グラフ
@@ -76,7 +76,7 @@ if(term == "day") {
     labs(title = paste0("@", screen_name, "のツイート数"), 
          x = "year-mon-day", y = "frequency") # ラベル
   
-} else if(term == "mon") {
+} else if(unit == "mon") {
   # 棒グラフを作図
   ggplot(freq_df, aes(x = date, y = n)) + 
     geom_bar(stat = "identity", fill = "#00A968") + # 棒グラフ
@@ -85,7 +85,7 @@ if(term == "day") {
     labs(title = paste0("@", screen_name, "のツイート数"), 
          x = "year-mon", y = "frequency") # ラベル
   
-} else if(term == "year") {
+} else if(unit == "year") {
   # 棒グラフを作図
   ggplot(freq_df, aes(x = date, y = n)) + 
     geom_bar(stat = "identity", fill = "#00A968") + # 棒グラフ
