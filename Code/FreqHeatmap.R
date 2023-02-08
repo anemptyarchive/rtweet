@@ -29,11 +29,11 @@ tw_df <- rtweet::get_timeline(screen_name, n = 10000, include_rts = TRUE)
 # 期間の指定 -------------------------------------------------------------------
 
 # 集計開始日を指定
-date_from <- "2021-01-01"
+date_from <- "2022-01-01"
 date_from <- min(tw_df[["created_at"]])
 
 # 集計終了日を指定
-date_to <- "2021-12-31"
+date_to <- "2022-12-31"
 date_to <- max(tw_df[["created_at"]])
 date_to <- lubridate::today()
 
@@ -42,7 +42,7 @@ date_to <- lubridate::today()
 
 # 集計単位を指定
 unit <- "year"
-unit <- "mon"
+unit <- "month"
 unit <- "day"
 
 # Date型に変換
@@ -81,14 +81,15 @@ if(unit == "day") {
     )
   
   # ヒートマップを作成
-  ggplot(freq_df, aes(x = year_mon, y = day, fill = n)) + 
+  ggplot(data = freq_df, mapping = aes(x = year_mon, y = day, fill = n)) + 
     geom_tile() + # ヒートマップ
+    #geom_text(mapping = aes(label = n), color ="white") + # テキストラベル
     scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶし色
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + # 軸目盛の傾き
     labs(title = paste0("@", screen_name, "のツイート数"), 
-         x = "year-mon", y = "day") # ラベル
+         x = "year-month", y = "day") # ラベル
   
-} else if(unit == "mon") {
+} else if(unit == "month") {
   # 軸用の文字列を作成
   freq_df <- freq_df |> 
     dplyr::mutate(
@@ -97,11 +98,12 @@ if(unit == "day") {
     )
   
   # ヒートマップを作成
-  ggplot(freq_df, aes(x = year, y = mon, fill = n)) + 
+  ggplot(data = freq_df, mapping = aes(x = year, y = mon, fill = n)) + 
     geom_tile() + # ヒートマップ
+    #geom_text(mapping = aes(label = n), color ="white") + # テキストラベル
     scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶし色
     labs(title = paste0("@", screen_name, "のツイート数"), 
-         x = "year", y = "mon") # ラベル
+         x = "year", y = "month") # ラベル
   
 } else if(unit == "year") {
   # 軸用のラベルを作成
@@ -109,8 +111,9 @@ if(unit == "day") {
     dplyr::mutate(year = format(date, format = "%Y")) # 年を抽出
   
   # ヒートマップを作成
-  ggplot(freq_df, aes(x = year, y = 0, fill = n)) + 
+  ggplot(data = freq_df, mapping = aes(x = year, y = 0, fill = n)) + 
     geom_tile() + # ヒートマップ
+    #geom_text(mapping = aes(label = n), color ="white") + # テキストラベル
     scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶし色
     scale_y_continuous(breaks = NULL, limits = c(-1, 1)) + # y軸目盛
     labs(title = paste0("@", screen_name, "のツイート数"), 
@@ -154,7 +157,7 @@ freq_df <- tw_df |>
   dplyr::arrange(datetime) # 昇順に並べ替え
 
 # ヒートマップを作成
-ggplot(freq_df, aes(x = year_mon_day, y = hour, fill = n)) + 
+ggplot(data = freq_df, mapping = aes(x = year_mon_day, y = hour, fill = n)) + 
   geom_tile() + # ヒートマップ
   scale_fill_gradient(low = "white" , high = "#00A968") + # 塗りつぶし色
   scale_x_date(breaks = seq(lubridate::as_date(datetime_from), lubridate::as_date(datetime_to), by = "1 week")) + # x軸目盛
